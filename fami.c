@@ -1,10 +1,19 @@
 
 /*
-Demonstrates the Famitone2 library for sound and music.
-Press controller buttons to hear sound effects.
-*/
+ * Simple Hex Dump, memory R/W tool for NES alike units
+ * Aim was to create something to allow device hardware
+ * exploration when all you have is the screen and the
+ * joystick/A/B/START/SELECT buttons.
+ *
+ * Utilizes neslib, and CC65 compiler libraries to make
+ * coding simpler.
+ *
+ */
 
+// NESlib : https://github.com/sehugg/neslib
 #include "neslib.h"
+
+// CC65 : https://github.com/cc65/cc65/blob/master/include/joystick.h
 #include <joystick.h>
 
 // link the pattern table into CHR ROM
@@ -13,13 +22,13 @@ Press controller buttons to hear sound effects.
 // setup Famitone library
 
 //#link "famitone2.s"
-void __fastcall__ famitone_update(void);
+//void __fastcall__ famitone_update(void);
 //#link "music_aftertherain.s"
-extern char after_the_rain_music_data[];
+//extern char after_the_rain_music_data[];
 //#link "music_dangerstreets.s"
-extern char danger_streets_music_data[];
+//extern char danger_streets_music_data[];
 //#link "demosounds.s"
-extern char demo_sounds[];
+//extern char demo_sounds[];
 
 #include <string.h>
 
