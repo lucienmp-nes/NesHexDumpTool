@@ -4,6 +4,8 @@
 
 #include "neslib.h"
 
+// add multiple characters to update buffer
+// using horizontal increment
 // VBUFSIZE = maximum update buffer bytes
 #define VBUFSIZE 128
 

@@ -12,6 +12,11 @@
 
 // NESlib : https://github.com/sehugg/neslib
 #include "neslib.h"
+#include <string.h>
+
+// VRAM graphics
+#include "vrambuf.h"
+//#link "vrambuf.c"
 
 // CC65 : https://github.com/cc65/cc65/blob/master/include/joystick.h
 #include <joystick.h>
@@ -19,74 +24,9 @@
 // link the pattern table into CHR ROM
 //#link "chr_generic.s"
 
-// setup Famitone library
 
-//#link "famitone2.s"
-//void __fastcall__ famitone_update(void);
-//#link "music_aftertherain.s"
-//extern char after_the_rain_music_data[];
-//#link "music_dangerstreets.s"
-//extern char danger_streets_music_data[];
-//#link "demosounds.s"
-//extern char demo_sounds[];
-
-#include <string.h>
-
-// add multiple characters to update buffer
-// using horizontal increment
-// VBUFSIZE = maximum update buffer bytes
-#define VBUFSIZE 128
-// index to end of buffer
-byte updptr = 0;
-// update buffer starts at $100 (stack page)
-#define updbuf ((byte*)0x100)
-
-// C versions of macros
-#define VRAMBUF_SET(b) updbuf[updptr] = (b);
-#define VRAMBUF_ADD(b) VRAMBUF_SET(b); ++updptr
-
-// add EOF marker to buffer (but don't increment pointer)
-void vrambuf_end(void) {
-  VRAMBUF_SET(NT_UPD_EOF);
-}
-
-// clear vram buffer and place EOF marker
-void vrambuf_clear(void) {
-  updptr = 0;
-  vrambuf_end();
-}
-
-// wait for next frame, then clear buffer
-// this assumes the NMI will call flush_vram_update()
-void vrambuf_flush(void) {
-  // make sure buffer has EOF marker
-  vrambuf_end();
-  // wait for next frame to flush update buffer
-  // this will also set the scroll registers properly
-  ppu_wait_frame();
-  // clear the buffer
-  vrambuf_clear();
-}
-
-
-void vrambuf_put(word addr, register const char* str, byte len) {
-  // if bytes won't fit, wait for vsync and flush buffer
-  if (VBUFSIZE-4-len < updptr) {
-    vrambuf_flush();
-  }
-  // add vram address
-  VRAMBUF_ADD((addr >> 8) ^ NT_UPD_HORZ);
-  VRAMBUF_ADD(addr); // only lower 8 bits
-  // add length
-  VRAMBUF_ADD(len);
-  // add data to buffer
-  memcpy(updbuf+updptr, str, len);
-  updptr += len;
-  // place EOF mark
-  vrambuf_end();
-}
-
-void clrscr() {
+// Clear display, enable vram setup
+void vrambuf_clrscr() {
   vrambuf_clear();
   ppu_off();
   vram_adr(0x2000);
@@ -95,7 +35,7 @@ void clrscr() {
   ppu_on_bg();
 }
 
-void print( unsigned x, unsigned y, char *str)
+void print( unsigned y, unsigned x, char *str)
 {
   vrambuf_put(NTADR_A(x,y), str, strlen(str));
 }
@@ -118,7 +58,7 @@ void printhex( unsigned y, unsigned x, unsigned size, unsigned val)
   }
   buf[i]=0;
   
-  print( x,y, buf );
+  print( y, x, buf );
 }
 
 void main(void)
@@ -145,28 +85,24 @@ void main(void)
   unsigned hexcol=0;
   unsigned hexrow=0;
   
+  // Color def for fonts
   pal_col(1,0x04);
   pal_col(2,0x20);
   pal_col(3,0x30);
   
+  // Clear and initialize
   vrambuf_clear();
-  clrscr();
+  vrambuf_clrscr();
   set_vram_update(updbuf);
-  
-  // initialize music system
-  //famitone_init(after_the_rain_music_data);
-  //famitone_init(danger_streets_music_data);
-  //sfx_init(demo_sounds);
-  print(1,1,"Hex dump tool!");
 
-  // set music callback function for NMI
-  //nmi_set_callback(famitone_update);
-  // play music
-  // music_play(0);
+  // Static screen information
+  print(1,1,"Hex dump tool!");
+  print(9,1,"     0  1  2  3  4  5  6  7");
 
   //enable rendering
   //  ppu_on_all();
 
+  // CC65 Joystick generalization
   joy_install (joy_static_stddrv);
 
   // repeat forever
@@ -179,58 +115,80 @@ void main(void)
     byte joy;
     joy = joy_read (JOY_1);
 
-    //while( joy==0 ) joy = joy_read (JOY_1) ;
+    // ---------------------------------------------------
+    // Handle Left/Right joystick
 
-    // Move pointer left/right
+    // Move "*" pointer left/right
     if( joy & JOY_LEFT_MASK  ) {  
-      if(p==0)p=0; else
-      p--;
+      if(p==0) p=0; else p--;
       mask=JOY_LEFT_MASK;
     }
     
     if( joy & JOY_RIGHT_MASK  ) {  
-      if(p==10)p=10; else
-      p++;
+      if(p==10) p=10; else p++;
       mask=JOY_RIGHT_MASK;
     }
     
-    
+    // ---------------------------------------------------
+    // Changing Write/Read Address, press A button to read/write to it
     if( p<=3 ) {
         // Counter digit UP/DOWN
         if( joy & JOY_DOWN_MASK  ) {  
           x = (ADDR>>((3-p)*4)) & 0xf;
-          if(x==0)x=15; else
-          x--;
-    	x = x<<((3-p)*4) | (ADDR & (0xffff & (~(0xf<<((3-p)*4)))));
-    	ADDR = x;
+          if(x==0) x=15; else x--;
+    	  x = x<<((3-p)*4) | (ADDR & (0xffff & (~(0xf<<((3-p)*4)))));
+    	  ADDR = x;
           mask=JOY_DOWN_MASK;
         }
 
         if( joy & JOY_UP_MASK  ) {
           x = (ADDR>>((3-p)*4)) & 0xf;
-          if(x>=15)x=0;else
-          x++;
-    	x = x<<((3-p)*4) | (ADDR & (0xffff & (~(0xf<<((3-p)*4)))));
-    	ADDR = x;
+          if(x>=15) x=0;else x++;
+    	  x = x<<((3-p)*4) | (ADDR & (0xffff & (~(0xf<<((3-p)*4)))));
+    	  ADDR = x;
           mask=JOY_UP_MASK;
         }
     }
     
+    // ---------------------------------------------------
+    // Changing R<->W
     if( p==4 && (joy & JOY_UP_MASK) ) {
     	RnW = 1-RnW;
       	mask=JOY_UP_MASK;
     }
     
     // ---------------------------------------------------
-    // Changing Hex Read Address
+    // Changing Write value
+    if( p==5 || p==6 ) {
+      	unsigned bitpos=(1-(p-5))*4;
+
+        // Counter digit UP/DOWN
+        if( joy & JOY_DOWN_MASK  ) {  
+          x = (VALW>>bitpos) & 0xf;
+          if(x==0) x=15; else x--;
+    	  x = x<<bitpos | (VALW & (0xffff & (~(0xf<<bitpos))));
+    	  VALW = x;
+          mask=JOY_DOWN_MASK;
+        }
+
+        if( joy & JOY_UP_MASK  ) {
+          x = (VALW>>bitpos) & 0xf;
+          if(x>=15) x=0;else x++;
+    	  x = x<<bitpos | (VALW & (0xffff & (~(0xf<<bitpos))));
+    	  VALW = x;
+          mask=JOY_UP_MASK;
+        }
+    }
+    
+    // ---------------------------------------------------
+    // Changing Hex Dump Read Address, press A button to lock in
     if( p>=7 ) {
       	unsigned bitpos=(3-(p-7))*4;
 
         // Counter digit UP/DOWN
         if( joy & JOY_DOWN_MASK  ) {  
           x = (ADDR4DUMPt>>bitpos) & 0xf;
-          if(x==0)x=15; else
-          x--;
+          if(x==0) x=15; else x--;
     	  x = x<<bitpos | (ADDR4DUMPt & (0xffff & (~(0xf<<bitpos))));
     	  ADDR4DUMPt = x;
           mask=JOY_DOWN_MASK;
@@ -238,8 +196,7 @@ void main(void)
 
         if( joy & JOY_UP_MASK  ) {
           x = (ADDR4DUMPt>>bitpos) & 0xf;
-          if(x>=15)x=0;else
-          x++;
+          if(x>=15) x=0;else x++;
     	  x = x<<bitpos | (ADDR4DUMPt & (0xffff & (~(0xf<<bitpos))));
     	  ADDR4DUMPt = x;
           mask=JOY_UP_MASK;
@@ -247,31 +204,9 @@ void main(void)
     }
 
     // ---------------------------------------------------
-    // Changing Hex Read Address
-    if( p==5 || p==6 ) {
-      	unsigned bitpos=(1-(p-5))*4;
-
-        // Counter digit UP/DOWN
-        if( joy & JOY_DOWN_MASK  ) {  
-          x = (VALW>>bitpos) & 0xf;
-          if(x==0)x=15; else
-          x--;
-    	  x = x<<bitpos | (VALW & (0xffff & (~(0xf<<bitpos))));
-    	  VALW = x;
-          mask=JOY_DOWN_MASK;
-        }
-
-        if( joy & JOY_UP_MASK  ) {
-          x = (VALW>>bitpos) & 0xf;
-          if(x>=15)x=0;else
-          x++;
-    	  x = x<<bitpos | (VALW & (0xffff & (~(0xf<<bitpos))));
-    	  VALW = x;
-          mask=JOY_UP_MASK;
-        }
-    }
-    
+    // Action the hex r/w, or hex dump address
     if( JOY_BTN_1(joy) ) {
+      // Read/Write data to selected address
       if( p<7 ) {
         if( RnW ) {
           VALR=*((unsigned char*)ADDR) ;
@@ -279,9 +214,23 @@ void main(void)
           *((unsigned char*)ADDR) = VALW;
         }
       }
+      
+      // Lock in hex dump address
       if( p>=7 ) ADDR4DUMP=ADDR4DUMPt;
     }
-    
+
+    /* Display Layout
+     *
+     *    1: Hex dump tool!
+     *    2: 
+     *    3: *
+     *    4: 1234 W 5a     OR 1234 R ??
+     *    5:
+     *    6:
+     *    7: 8000
+     *    8:       0   1 ...
+     *    9: 8000  xx yy
+     */
 //    ppu_wait_frame();
 //    ppu_wait_nmi();
     if(p!=p2) {
@@ -289,8 +238,8 @@ void main(void)
       p2=p;
       
       // Remove old *
-      print(oldx,4," ");
-      print(oldx,7," ");
+      print(4,oldx," ");
+      print(7,oldx," ");
       
       if( p<=3 )
         oldx=p+1;
@@ -302,8 +251,8 @@ void main(void)
 	oldx=(p-6);
       
       if( p<7 )
-        print(oldx,4,"*");
-      else print(oldx,7,"*");
+        print(4,oldx,"*");
+      else print(7,oldx,"*");
     }
     
     if(ADDR!=ADDR2) {ADDR2=ADDR;  printhex(5,1,4,ADDR);}
@@ -314,17 +263,20 @@ void main(void)
       VALW2=VALW;
       
       if( RnW ) {      
-        print(6,5,"R ");
+        print(5,6,"R ");
         printhex(5,8,2,VALR);
       } else {
-        print(6,5,"W");
+        print(5,6,"W");
         printhex(5,8,2,VALW); 
       }
     }
     printhex(8,1,4,ADDR4DUMPt);
     
     // Would be better to print the hex over successive frames
-    vrambuf_flush();    
+    vrambuf_flush();
+    
+    // After a few frames dump the RAM, keep dumping incase something 
+    // changes.
     {
       static unsigned counter=0;
       counter=counter+1;
@@ -332,24 +284,24 @@ void main(void)
       if( counter>=0x20 ) {
         counter=0;
     
-        print(1,9,"     0  1  2  3  4  5  6  7");
-
         for( hexrow=0; hexrow<8 ; hexrow++ )
         {
           printhex(10+hexrow,1,4,ADDR4DUMP+(hexrow*8));
           for( hexcol=0; hexcol<8 ; hexcol++ )
           {
-            unsigned val = *((unsigned*)(ADDR4DUMP+hexcol+(hexrow*8)));
+            unsigned val = *((unsigned char*)(ADDR4DUMP+hexcol+(hexrow*8)));
             printhex(10+hexrow,(hexcol*3)+6,2,val);  
           }
           vrambuf_flush();
         }
       }
     }
+    
+    // Flush whatevers left, just lazy.
     //ppu_wait_frame();
     vrambuf_flush();
-    
-    while(   (joy&mask) ) joy = joy_read (JOY_1) ;
 
-  }
+    // Make sure the joystick changed away from whats being pressed now
+    while( (joy&mask) ) joy = joy_read (JOY_1) ;
+  } // end while(1);
 }
